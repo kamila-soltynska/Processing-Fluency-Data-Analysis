@@ -1,0 +1,882 @@
+---
+title: "data cleaning 2"
+output: html_document
+date: "2023-01-31"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#read in data
+data <- read.csv("data.csv", na.strings=c("","NA"))
+
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(broom)
+library(lsr)
+library(effsize)
+library('cowplot')
+
+#mediation package
+library(bmlm)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+CLEANING DATA & DEMOGRAPHICS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+```{r}
+#### Remove rows #### 
+
+
+  #e.g. no survey previous, no Finished = FALSE, feedback, progress = less than 100
+
+#delete irrelevant columns
+CHECKdata = data %>% select(-matches("First.Click|Last.Click|Page.Submit|Click.Count"))
+  
+#delete attention questions
+CHECKdata = CHECKdata %>% select(-matches("Prolific_ID|Attention"))
+
+#delete unfinished response ROWS
+CHECKdata <- filter(CHECKdata,Status!="Survey Preview",Finished!="FALSE",Status!="Spam",DistributionChannel!="preview",data$Q89!="I do not agree to complete this survey",Status!="Response Type")
+  	
+#check new number
+nrow(CHECKdata)
+```
+
+```{r}
+#### Remove columns #### 
+
+
+#delete above columns
+dat <- subset(CHECKdata, select = -c(Status,Progress,Duration..in.seconds.,Finished,DistributionChannel,Q89))
+
+#delete feedback columns
+dat = subset(dat, select = -c(Problems.,problems.p2,Seen.Before.,Study.about.,Other.Feedback.))
+
+#delete columns with identifying information
+dat = subset(dat, select = -c(StartDate,EndDate,RecordedDate,RecipientLastName,RecipientFirstName,RecipientEmail,ExternalReference,LocationLatitude,LocationLongitude,UserLanguage) )
+
+
+
+#rename FL_5_DO to "group" to indicate DFFD or FDDF group
+
+dat <- dat %>% mutate(FL_5_DO=recode(FL_5_DO,'FL_20'='A','FL_21'='B'))
+
+dat <- dat %>% dplyr::rename(group=FL_5_DO) 
+```
+
+```{r}
+##### DEMOGRAPHICS #### 
+
+#data frome for response id + demographics
+demo <- dat %>% select(ResponseId,D1...gender,D2...age,D3...education,D4...fluent.,D5...ethnicity)
+
+#delete demographics from dat
+dat = subset(dat, select = -c(D1...gender,D2...age,D3...education,D4...fluent.,D5...ethnicity))
+```
+
+
+```{r}
+#merge columns from group A and group B
+datA <- dat %>% filter(group == 'A') %>% select(ResponseId:Q131_1, group) 
+datB <- dat %>% filter(group == 'B') %>% select(ResponseId, Q99:group)
+names(datB) <- names(datA)
+datCombined <- rbind(datA,datB)
+
+```
+
+```{r}
+#remove NA screenouts
+df <- na.omit(datCombined)
+
+#remove screenout Qs and put in new df
+Sceenout <- select(df,Q63,Q64,Q65,Q66,Q67,Q68,Q69,Q70,Q71,Q72,Q73,Q74)
+datNum <- select(df, -c(Q63,Q64,Q65,Q66,Q67,Q68,Q69,Q70,Q71,Q72,Q73,Q74))
+
+nrow(datNum)
+```
+
+```{r}
+
+#rename columns
+datNum <- datNum %>% rename("H1"="Q1001_1",
+                            "L1"="Q10002_1",
+                            "O1"="Q1003_1",
+                            "H2"="Q1005_1",
+                            "L2"="Q1006_1",
+                            "O2"="Q1007_1",
+                            "H3"="Q125_1",
+                            "L3"="Q126_1",
+                            "O3"="Q127_1",
+                            "H4"="Q129_1",
+                            "L4"="Q130_1",
+                            "O4"="Q131_1")
+                          
+```
+renames for ratings:
+  H - hireability 
+  L - likeability
+  E - ease of opinion
+
+
+
+```{r}
+#only retain demographic data from ppts in datNum dataframe
+
+demo <- merge(datNum, demo, by.x = "ResponseId")
+demo <- demo %>% select(ResponseId,D1...gender,D2...age,D3...education,D5...ethnicity)
+```
+
+```{r}
+#check for any duplicate response IDs
+datNum %>% count(ResponseId)
+```
+
+
+D1...gender
+
+1 = male
+2 = female
+3 = nonbinary/third_gender
+4 = prefer not to say
+
+D3...education
+
+1 = No formal education
+2 = Secondary school (GCSEs/O levels or equivalent)
+3 = Sixth form (A levels or equivalent)
+4 = Undergraduate degree (BSc/BA or equivalent)
+5 = Postgraduate degree (MSc/MA/MRES/PhD or equivalent)
+6 = Prefer not to say
+
+D5...ethnicity
+
+1=White
+2=Asian / Asian British
+3=Black / African / Caribbean / Black British
+4=Mixed / Multiple ethnic groups
+5=Other
+6=Prefer not to say
+
+```{r}
+##### summarise demographic information #####
+
+#age
+demo %>% summarise(meanAge=mean(D2...age), maxAge=max(D2...age), minAge=min(D2...age), sdAge=sd(D2...age))
+
+#gender
+  #recode and count
+  demo <- demo %>% mutate(D1...gender=recode(D1...gender,'1'='male','2'='female','3'='nonbinary/third_gender','4'='prefer_not_to_say'))
+demo %>% count(D1...gender)
+  
+#education
+  #recode and count
+  demo <- demo %>% mutate(D3...education=recode(D3...education,'1'='No_formalEdu','2'='Secondary','3'='Sixthform','4'='Undergraduate','5'='Postgraduate degree','6'='prefer_not_to_say'))
+demo %>% count(D3...education)
+  
+#ethnicity 
+  #recode and count
+  demo <- demo %>% mutate(D5...ethnicity=recode(D5...ethnicity,'1'='White','2'='Asian','3'='Black','4'='Mixed','5'='Other','6'='prefer_not_to_say'))
+demo %>% count(D5...ethnicity)
+
+
+#total ppts
+nrow(demo)
+
+
+#count number of A and B responses 
+table(datNum['group'])
+
+```
+
+
+
+```{r}
+#make data type correct
+
+#check what data looks like
+print(typeof(datNum$H1))
+str(datNum)
+
+#convert chr to numeric
+
+i <- c(2,3,4,5,6,7,8,9,10,11,12,13)  
+
+datNum[ , i] <- apply(datNum[ , i], 2,  
+                    function(x) as.numeric(as.character(x)))
+
+
+```
+#check change worked
+str(datNum)
+
+
+```{r}
+#make dataset with sums accross scores
+
+datCompNum <- datNum %>% mutate(H_Comp = H1+H2+H3+H4) %>% mutate(L_Comp = L1+L2+L3+L4) %>% mutate(O_Comp = O1+O2+O3+O4)
+```
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+END OF DATA CLEANING + demographics
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+DATA ANALYSIS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+Do a within groups t test
+
+For each ppt average:
+	average fluent ratings 
+	average disfluent ratings 
+
+So:
+    group A (FDDF)
+    Fluent = end videos = avarage H1 + H4
+    Disfluent = middle videos = avarage H2 + H3
+  
+    group B (DFFD)
+    Fluent = middle videos = avarage H2 + H3
+    Disfluent = end videos = avarage H1 + H4
+  
+
+```{r}
+#### setting up for within groups T test
+
+#split df into A and B
+datWithin_A <- datNum %>% filter(group == 'A') %>% select(ResponseId:group, group)
+datWithin_B <- datNum %>% filter(group == 'B') %>% select(ResponseId:group, group)
+
+#group A avarage scores
+
+  # H fluent 
+      datWithin_A <- datWithin_A %>% mutate(H_Fluent = (H1+H4)/2)
+  # H disfluent
+      datWithin_A <- datWithin_A %>% mutate(H_Disfluent = (H2+H3)/2)
+      
+  # L fluent 
+      datWithin_A <- datWithin_A %>% mutate(L_Fluent = (H1+H4)/2)
+  # L disfluent
+      datWithin_A <- datWithin_A %>% mutate(L_Disfluent = (H2+H3)/2)
+      
+  # O fluent 
+      datWithin_A <- datWithin_A %>% mutate(O_Fluent = (H1+H4)/2)
+  # O disfluent
+      datWithin_A <- datWithin_A %>% mutate(O_Disfluent = (H2+H3)/2)
+
+#group B avarage scores
+
+  # H fluent 
+      datWithin_B <- datWithin_B %>% mutate(H_Fluent = (H2+H3)/2)
+  # H disfluent
+      datWithin_B <- datWithin_B %>% mutate(H_Disfluent = (H1+H4)/2)
+
+  # L fluent
+      datWithin_B <- datWithin_B %>% mutate(L_Fluent = (L2+L3)/2)
+  # L Disfluent
+      datWithin_B <- datWithin_B %>% mutate(L_Disfluent = (L1+L4)/2)
+
+
+  # O fluent
+      datWithin_B <- datWithin_B %>% mutate(O_Fluent = (O1+O4)/2)
+  # O Disfluent
+      datWithin_B <- datWithin_B %>% mutate(O_Disfluent = (O1+O4)/2)
+      
+      
+#combbine datasets
+      datWithin <- rbind(datWithin_A,datWithin_B)
+
+### Now we have avarges for all F and D conditions for all participants
+      
+#reshape data 
+datWithin_Plot <- datWithin %>% gather(GroupKey, Ratings,H_Fluent,H_Disfluent,L_Fluent,L_Disfluent,O_Fluent,O_Disfluent)
+```
+
+```{r}
+########################################################################
+      # Within groups t test (same people accross conditions)
+######################################################################## 
+
+t.test(datWithin %>% pull(H_Fluent),
+            datWithin %>% pull(H_Disfluent), paired = TRUE)  %>% tidy()
+
+t.test(datWithin %>% pull(L_Fluent),
+            datWithin %>% pull(L_Disfluent), paired = TRUE) %>% tidy()
+
+t.test(datWithin %>% pull(O_Fluent),
+            datWithin %>% pull(O_Disfluent), paired = TRUE) %>% tidy()
+```
+
+
+ 
+    
+```{r}
+#descriptives
+datWithin %>% summarise(H_F_mean = mean(H_Fluent), H_D_mean = mean(H_Disfluent), 
+                        H_F_sd = sd(H_Fluent), H_D_sd = sd(H_Disfluent),
+                                    
+                        L_F_mean = mean(L_Fluent), L_D_mean = mean(L_Disfluent), 
+                        L_F_sd = sd(L_Fluent), L_D_sd = sd(L_Disfluent),
+                          
+                        O_F_mean = mean(O_Fluent), O_D_mean = mean(O_Disfluent), 
+                        O_F_sd = sd(O_Fluent), O_D_sd = sd(O_Disfluent))
+```
+
+                                                                      
+```{r}
+
+# effect size
+cohensD(datWithin %>% pull(H_Fluent),
+            datWithin %>% pull(H_Disfluent), method='paired')
+
+cohensD(datWithin %>% pull(L_Fluent),
+            datWithin %>% pull(L_Disfluent), method='paired')
+
+cohensD(datWithin %>% pull(O_Fluent),
+            datWithin %>% pull(O_Disfluent), method='paired')
+
+```
+
+                                       
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+########################################################################
+      # MEDIATION ANALYSIS
+########################################################################
+
+#setting up data 
+
+#predictor column
+datWithin_Plot <- datWithin_Plot %>% mutate(Predictor = case_when(GroupKey == "H_Fluent" ~ "Fluent",
+                                                                  GroupKey == "L_Fluent" ~ "Fluent",
+                                                                  GroupKey == "O_Fluent" ~ "Fluent",
+                                                                  GroupKey == "H_Disfluent" ~ "Disfluent",
+                                                                  GroupKey == "L_Disfluent" ~ "Disfluent",
+                                                                  GroupKey == "O_Disfluent" ~ "Disfluent",
+                                                                  NULL)) 
+                                                                 
+#spread 
+dat_Mediation <- datWithin_Plot %>% spread(GroupKey, Ratings) 
+  
+# columns for H L and O
+dat_Mediation <- dat_Mediation %>% mutate(Hireability = coalesce(H_Disfluent,H_Fluent)) %>% 
+                                    mutate(Likeability = coalesce(L_Disfluent,L_Fluent)) %>% 
+                                    mutate(Opinion = coalesce(O_Disfluent,O_Fluent))
+
+#remove unecassary columns
+dat_Mediation <- dat_Mediation %>% select(-c(H_Disfluent,H_Fluent,L_Disfluent,L_Fluent,O_Disfluent,O_Fluent)) 
+  
+```
+
+mediation tutorial:
+https://www.youtube.com/watch?v=bvn1sqTb74s&ab_channel=StatisticsofDOOM
+
+
+x / predictor = Predictor
+m / mediator = opinion
+y /  DV = hireability 
+
+
+
+
+```{r}
+####regression
+
+#regression for IV on hireability ratings 
+output <- lm(Hireability~Predictor, data = dat_Mediation) 
+
+summary(output)
+```
+
+
+
+    
+    
+```{r}
+#bmlm package mediation
+
+#dummy code predictor with integers
+BM <- dat_Mediation %>% mutate(Predictor=recode(Predictor,'Fluent'='1','Disfluent'='0'))
+
+BM$Predictor = as.numeric(BM$Predictor)
+```
+
+```{r}
+#turning response id into numeric
+BM$ID <- as.numeric(factor(BM$ResponseId, 
+                  levels=unique(BM$ResponseId)))
+```
+
+#mean centering not used in final anlaysis 
+```{r}
+#within person mean centering test 
+Q <- isolate(BM,            #dataframe
+                 by = "ID", #column of values that identifies individuals
+                 value = c("Opinion", "Hireability"))
+```
+```{r}
+#within person mean centering
+B <- isolate(BM,            #dataframe
+                 by = "ID", #column of values that identifies individuals
+                 value = c("Predictor", "Opinion", "Hireability"))
+```
+
+```{r}
+#checking data type is correct
+str(B)
+```
+
+
+
+///////////////////////////////////////////////////////
+HIREABILITY
+///////////////////////////////////////////////////////
+
+#this may take a few minutes to run 
+```{r}
+#HIREABILITY MEDIATION
+fitZ <- mlm(d = Q, 
+           id = "ID",
+           x = "Predictor",
+            m = "Opinion",
+             y = "Hireability",
+           iter = 2000,
+           cores = 4)
+```
+```{r}
+mlm_summary(fitZ)
+```
+
+```{r}
+mlm_path_plot(fitZ, level = .95, text = T,
+              xlab = "   AV Quality.  \n0 = Low\n1 = High",
+              mlab = "Ease of\nOpinion\n.   Formation   ",
+              ylab = "    Hireability   \nRatings", digits = 2)
+```
+
+
+subject-level estimates
+
+https://mvuorre.github.io/bmlm/articles/bmlm-blch9/bmlm-blch9.html
+"We can also visualize the between-subject heterogeneity in the indirect effect. This is one of the most interesting features of 1-1-1 mediation: Because every subject has their own slope for the a-path and b-path, they each have their own indirect effect as well. Here, the subjects are displayed in order of the size of their indirect effect, and the indirect effect in on the y-axis. We can easily see that although some participants show something similar to the average mediated effect (shown in red
+), others show no mediated effect and others show a mediated effect several times larger than what we found for the prototypical person."
+
+```{r}
+
+mlm_pars_plot(fitZ, 
+              type = "coef", 
+              pars = c("u_me", "me"),
+              level = .8)
+```
+
+///////////////////////////////////////////////////////
+LIKEABILITY
+///////////////////////////////////////////////////////
+
+```{r}
+#LIKEABILITY MEDIATION
+fitL <- mlm(d = Q, 
+           id = "ID",
+           x = "Predictor",
+            m = "Opinion",
+             y = "Likeability",
+           iter = 2000,
+           cores = 4)
+```
+```{r}
+mlm_summary(fitL)
+```
+
+```{r}
+mlm_path_plot(fitL, level = .95, text = T,
+              xlab = "   AV Quality.  \n0 = Low\n1 = High",
+              mlab = "Ease of\nOpinion\n.   Formation   ",
+              ylab = "    Likeability   \nRatings", digits = 2)
+```
+
+```{r}
+#individual subjects level graph 
+mlm_pars_plot(fitL, 
+              type = "coef", 
+              pars = c("u_me", "me"),
+              level = .8)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+```{r}
+########################################################################
+      # Graph preperation
+########################################################################
+
+#create groups for facet wrapping graph 
+
+datWithin_Plot$Rating_Type <- as.factor(ifelse(datWithin_Plot$GroupKey == "H_Fluent", "Hireability", 
+                                        ifelse(datWithin_Plot$GroupKey == "H_Disfluent", "Hireability", 
+                                        ifelse(datWithin_Plot$GroupKey == "L_Fluent", "Likeability", 
+                                        ifelse(datWithin_Plot$GroupKey == "L_Disfluent", "Likeability", 
+                                        ifelse(datWithin_Plot$GroupKey == "O_Fluent", "Opinion Formation", 
+                                        ifelse(datWithin_Plot$GroupKey == "O_Disfluent", "Opinion Formation", "NULL")))))))
+
+  #turn group key into fluent or disfluent
+
+datWithin_Plot$Video_Type <- as.factor(ifelse(datWithin_Plot$GroupKey == "H_Fluent", "Fluent",
+                                      ifelse(datWithin_Plot$GroupKey == "H_Disfluent", "Disfluent",
+                                      ifelse(datWithin_Plot$GroupKey == "L_Fluent", "Fluent",
+                                      ifelse(datWithin_Plot$GroupKey == "L_Disfluent", "Disfluent",
+                                      ifelse(datWithin_Plot$GroupKey == "O_Fluent", "Fluent",
+                                      ifelse(datWithin_Plot$GroupKey == "O_Disfluent", "Disfluent", "NULL")))))))
+                                            
+```
+
+```{r}
+########################################################################
+      # WITHIN GROUPS GRAPH 
+########################################################################
+
+#original figure
+ggplot (datWithin_Plot, aes (
+			 y = Ratings,
+			x = GroupKey)) + 
+	geom_violin () +
+geom_boxplot ( width = 0.1 ) 
+
+#seperated variation
+ggplot (datWithin_Plot, aes (
+	y = Ratings,
+	x = Video_Type)) + 
+	
+  geom_violin () +
+  geom_boxplot ( width = 0.1 ) +
+  facet_wrap(~Rating_Type)
+
+##### within groups graph #########################
+  ggplot (datWithin_Plot, aes (
+	  y = Ratings,
+	  x = Video_Type,
+	
+	  fill = as.factor(Video_Type))) + 
+	
+    geom_violin () +
+  
+      geom_boxplot ( width = 0.1) +
+ 
+   
+  #geom_jitter(show.legend = F, width = 0.2, shape = 20) +
+    
+   geom_jitter(aes(), 
+     position = position_jitter(width = .3), alpha = 0.4 , shape = 20
+     )  +
+
+    facet_wrap(~Rating_Type) +
+    theme_classic() + 
+    scale_fill_discrete(guide="none") +
+  
+    labs (x= "Condition")
+
+############################################################
+```                             
+library(gghalves)
+install.packages("ggdist")
+```{r}
+###### the above graphs dont look great, so lets change it.
+#graph package
+
+library(ggdist)
+library(extrafont)
+```
+
+```{r}
+
+ ggplot (datWithin_Plot, aes (
+	  y = Ratings,
+	  x = Video_Type,
+	  fill = as.factor(Video_Type))) +
+
+  #half violin + boxplot  
+  ggdist::stat_halfeye(
+
+      #custamise bandwidth option       adjust = .5, 
+      width = .6, 
+      .width = 0, 
+      justification = -.3) + 
+  
+    geom_boxplot(
+      width = .27, 
+     outlier.shape = NA) +
+  
+  
+  #jittor over boxplot 
+  geom_point(
+    size = 1,
+    alpha = .3,
+    position = position_jitter(
+    seed = 1, width = .1)) + 
+
+  #more graphs to the left by removing left space
+  coord_cartesian(xlim = c(1.2, NA), clip = "off") +
+  
+  
+  facet_wrap(~Rating_Type) +
+  #theme_classic() +
+  theme_test() +
+  theme(text=element_text(family="Times New Roman")) + 
+  scale_fill_discrete(guide="none") +
+  
+  labs (x= "AV Quality",
+        y = "Ratings of Candidates")
+
+  
+
+  
+
+
+```
+
+    ## add justified jitter from the {gghalves} package
+  gghalves::geom_half_point(
+    ## draw jitter on the left
+    side = "l", 
+    ## control range of jitter
+    range_scale = .4, 
+    ## add some transparency
+    alpha = .3
+  ) +
+  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+INDEPENDENT GROUPS ANALYSIS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+```{r}
+#### INDEPENDENT GROUPS T TEST
+
+
+#hireability
+t.test(datNum %>% filter(group == "A") %>% pull(H1),
+                      datNum %>% filter(group == "B") %>% pull(H1)) %>% tidy()
+
+cohensD(datNum %>% filter(group == "A") %>% pull(H1),
+        datNum %>% filter(group == "B") %>% pull(H1), method='unequal')
+  
+#likeability
+ t.test(datNum %>% filter(group == "A") %>% pull(L1),
+                      datNum %>% filter(group == "B") %>% pull(L1)) %>% tidy()
+ 
+ cohensD(datNum %>% filter(group == "A") %>% pull(L1),
+        datNum %>% filter(group == "B") %>% pull(L1), method='unequal')
+ 
+#opinion formation    
+ t.test(datNum %>% filter(group == "A") %>% pull(O1),
+                      datNum %>% filter(group == "B") %>% pull(O1)) %>% tidy()
+ 
+ cohensD(datNum %>% filter(group == "A") %>% pull(O1),
+        datNum %>% filter(group == "B") %>% pull(O1), method='unequal')
+```
+
+```{r}
+wilcox.test(datNum %>% filter(group == "A") %>% pull(H1),
+                      datNum %>% filter(group == "B") %>% pull(H1), paired = F)
+```
+
+
+```{r}
+#### INDEPENDENT GROUPS PLOTS
+
+
+### hireability graph 1
+#FD
+ggplot (datNum, aes ( group = group, 
+			 y = H1,
+			 x = group)) + 
+	geom_violin () +
+  geom_boxplot ( width = 0.1 ) 
+
+#H Video 1 coloured graph version 
+datNum <- datNum %>% mutate(H1_name = case_when(group == "A" ~ "Fluent", group == "B"  ~ "Disfluent"))
+
+ggplot (datNum, aes ( group = H1_name, 
+			 y = H1,
+			 x = H1_name,
+			 fill = H1_name)) + 
+	geom_violin () +
+    
+  #geom_jitter(width = 0.15, shape = 20, alpha = 0.5) +
+  
+  geom_jitter(aes(), 
+     position = position_jitter(width = .2), alpha = 0.2 #, shape = 20
+     )  +
+  
+  geom_boxplot ( width = 0.1 ) +
+  
+  theme_classic() + 
+  scale_fill_manual(values = c("#f7766d", "#03bfc4"))  + 
+  scale_fill_discrete(guide="none") +
+  
+  labs (x= "Video 1", y = 'Ratings')
+```
+
+```{r}
+
+ggplot (datNum, aes ( group = H1_name, 
+			 y = H1,
+			 x = H1_name,
+			 fill = H1_name)) + 
+
+    
+    #half violin + boxplot  
+  ggdist::stat_halfeye(
+
+      #custamise bandwidth option       adjust = .5, 
+      width = .6, 
+      .width = 0, 
+      justification = -.3) + 
+  
+    geom_boxplot(
+      width = .15, 
+     outlier.shape = NA) +
+  
+  
+  #jittor over boxplot 
+  geom_point(
+    size = 1,
+    alpha = .3,
+    position = position_jitter(
+    seed = 1, width = .1)) + 
+
+  #more graphs to the left by removing left space
+  coord_cartesian(xlim = c(1.2, NA), clip = "off") +
+
+  theme_classic() + 
+  theme(text=element_text(family="Times New Roman")) + 
+  scale_fill_manual(values = c("#f7766d", "#03bfc4"))  + 
+  scale_fill_discrete(guide="none") +
+  
+  labs (x= "AV Quality", y = 'Hireability Ratings')
+
+
+
+
+
+
+```
+
+
