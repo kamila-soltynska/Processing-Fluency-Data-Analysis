@@ -8,7 +8,7 @@ This repository contains the following documents:
 ⁃	“ANALYSIS.Rmd” 
 An Rmd file containing all data cleaning, data analysis procedures, and graphics. 
 
-⁃	“Dissertation.pdf” 
+⁃	“Processing Fluency Report Results.pdf” 
 A pdf file containing part of the methods section and the full results section of the dissertation. The dissertation concerned the topic: "Processing Fluency as the Mediator of the Effect of Audio-Visual Quality Bias on Video Job Interview Candidates"
 
 ⁃	“data.csv”
